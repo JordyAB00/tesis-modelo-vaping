@@ -533,7 +533,7 @@ def generar_condicion_inicial(N, q, prevalencia_V, Qt0=0, Qp0=0):
 
 
 # ============================================================================
-# FUNCIONES PARA ANÁLISIS DE SENSIBILIDAD (SECCIÓN 4.9)
+# FUNCIONES PARA ANÁLISIS DE SENSIBILIDAD (SECCIÓN 5.9)
 # ============================================================================
 
 def analisis_sensibilidad_univariado(params_base, nombre_param, rango_valores, nombre_escenario="Base"):
@@ -1138,7 +1138,7 @@ params_conservador = {
 }
 
 # ============================================================================
-# EJECUCIÓN PRINCIPAL (SECCIONES 4.7 Y 4.8)
+# EJECUCIÓN PRINCIPAL (SECCIONES 5.7 Y 5.8)
 # ============================================================================
 
 print("\n" + "="*80)
@@ -1238,16 +1238,16 @@ plt.close(fig_comp)
 
 
 # ============================================================================
-# ANÁLISIS DE SENSIBILIDAD PARAMÉTRICA (SECCIÓN 4.9)
+# ANÁLISIS DE SENSIBILIDAD PARAMÉTRICA (SECCIÓN 5.9)
 # ============================================================================
 
 print("\n" + "="*80)
-print("SECCIÓN 4.9: ANÁLISIS DE SENSIBILIDAD PARAMÉTRICA")
+print("SECCIÓN 5.9: ANÁLISIS DE SENSIBILIDAD PARAMÉTRICA")
 print("="*80)
 
-# 4.9.1: Análisis univariado
+# 5.9.1: Análisis univariado
 print("\n" + "-"*80)
-print("4.9.1: ANÁLISIS DE SENSIBILIDAD UNIVARIADO")
+print("5.9.1: ANÁLISIS DE SENSIBILIDAD UNIVARIADO")
 print("-"*80)
 
 rangos_params = {
@@ -1277,9 +1277,9 @@ for param, rango in rangos_params.items():
 print("\nGenerando gráficos de sensibilidad univariada...")
 graficar_sensibilidad_univariada(resultados_univariados)
 
-# 4.9.2: Mapas de calor bivariados
+# 5.9.2: Mapas de calor bivariados
 print("\n" + "-"*80)
-print("4.9.2: ANÁLISIS BIVARIADO - MAPAS DE CALOR")
+print("5.9.2: ANÁLISIS BIVARIADO - MAPAS DE CALOR")
 print("-"*80)
 
 combinaciones_clave = [
@@ -1293,9 +1293,9 @@ for param1, param2, rango1, rango2 in combinaciones_clave:
     resultado_mapa = mapa_calor_bivariado(params_base, param1, rango1, param2, rango2)
     graficar_mapa_calor(resultado_mapa)
 
-# 4.9.3: Escenarios de intervención
+# 5.9.3: Escenarios de intervención
 print("\n" + "-"*80)
-print("4.9.3: EVALUACIÓN DE INTERVENCIONES")
+print("5.9.3: EVALUACIÓN DE INTERVENCIONES")
 print("-"*80)
 
 # Intervención 1: Programas de cesación mejorados
@@ -1384,9 +1384,9 @@ print("\nGráfico guardado: comparacion_intervenciones_R0.png")
 plt.show()
 plt.close(fig_int)
 
-# 4.9.4: Escenario ajustado para Costa Rica (R0 > 1)
+# 5.9.4: Escenario ajustado para Costa Rica (R0 > 1)
 print("\n" + "-"*80)
-print("4.9.4: ESCENARIO AJUSTADO PARA COSTA RICA (R₀ > 1)")
+print("5.9.4: ESCENARIO AJUSTADO PARA COSTA RICA (R₀ > 1)")
 print("-"*80)
 
 # Escenario 1: Ajuste moderado
@@ -1431,9 +1431,9 @@ params_ajustado_alto = {
 print("\nEscenario ajustado alto:")
 resultado_alto = escenario_ajustado_CR(params_ajustado_alto, "Ajustado alto")
 
-# 4.9.5: Comparación de todos los escenarios
+# 5.9.5: Comparación de todos los escenarios
 print("\n" + "="*80)
-print("4.9.5: COMPARACIÓN INTEGRAL DE ESCENARIOS")
+print("5.9.5: COMPARACIÓN INTEGRAL DE ESCENARIOS")
 print("="*80)
 
 escenarios_comparacion = [
@@ -1512,9 +1512,9 @@ if len(resultado_alto['equilibrios']) > 0:
         print(f"  Equilibrio #{i}: V* = {eq['V']:.2f} ({prev_eq:.2f}% prevalencia)")
         print(f"    Estabilidad: {eq['estabilidad']['estabilidad']}")
 
-# 4.9.6: Implicaciones para políticas públicas
+# 5.9.6: Implicaciones para políticas públicas
 print("\n" + "="*80)
-print("4.9.6: IMPLICACIONES PARA POLÍTICAS PÚBLICAS")
+print("5.9.6: IMPLICACIONES PARA POLÍTICAS PÚBLICAS")
 print("="*80)
 
 print("\nPRINCIPALES HALLAZGOS DEL ANÁLISIS DE SENSIBILIDAD:")
@@ -1671,7 +1671,7 @@ print("\n4. Reconciliación con datos de Costa Rica:")
 print(f"   - Escenario base (literatura): R₀ = {resultados_base['R0']:.4f} (subcrítico)")
 print(f"   - Escenario ajustado moderado: R₀ = {resultado_moderado['R0']:.4f} (supercrítico)")
 print(f"   - Escenario ajustado alto: R₀ = {resultado_alto['R0']:.4f} (supercrítico)")
-print("   - Los escenarios ajustados son consistentes con crecimiento 300% observado")
+print("   - Los escenarios ajustados son consistentes con crecimiento 225% observado")
 print("   - Sugieren condiciones epidemiológicas específicas de Costa Rica")
 
 print("\n5. Recomendaciones para políticas públicas:")
@@ -1688,11 +1688,11 @@ print("ANÁLISIS DE SENSIBILIDAD COMPLETADO")
 print("="*80)
 
 print("\nARCHIVOS GENERADOS:")
-print("  Secciones 4.7-4.8:")
+print("  Secciones 5.7-5.8:")
 print("    - simulaciones_escenario_base.png")
 print("    - simulaciones_escenario_conservador.png")
 print("    - comparacion_escenarios_13pct.png")
-print("  Sección 4.9:")
+print("  Sección 5.9:")
 print("    - sensibilidad_univariada_completa.png")
 print("    - mapa_calor_beta_vs_gamma_t.png")
 print("    - mapa_calor_beta_p_vs_gamma_p.png")
@@ -1705,6 +1705,9 @@ print("    - comparacion_intervenciones_R0.png")
 print("    - escenario_ajustado_moderado.png")
 print("    - escenario_ajustado_alto.png")
 print("    - comparacion_todos_escenarios_temporal.png")
+print("  Multiplicidad de equilibrios y bifurcación hacia atrás:")
+print("    - mapa_numero_equilibrios.png")
+print("    - bifurcacion_hacia_atras.png")
 
 print("\n" + "="*80)
 print("FIN DEL ANÁLISIS")
