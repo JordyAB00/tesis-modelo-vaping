@@ -1,9 +1,23 @@
+import unicodedata
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 from scipy.optimize import fsolve, brentq
-import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
+
+
+def nombre_archivo_seguro(texto):
+    """
+    Normaliza un nombre de escenario para usarlo en un nombre de archivo:
+    sin tildes, en minúsculas y con guiones bajos en lugar de espacios.
+
+    Solo afecta los archivos generados; los títulos de las figuras conservan
+    el nombre original con su acentuación.
+    """
+    sin_tildes = ''.join(c for c in unicodedata.normalize('NFD', texto)
+                         if unicodedata.category(c) != 'Mn')
+    return sin_tildes.lower().replace(' ', '_')
+
 
 class ModeloVapeo:
     """
@@ -180,7 +194,7 @@ class ModeloVapeo:
         raices = np.roots(coeficientes)
         
         raices_reales = raices[np.isreal(raices)].real
-        raices_positivas = raices_reales[raices_reales > 1e-10]
+        raices_positivas = raices_reales[(raices_reales > 1e-10) & (raices_reales <= self.N)]
         
         return sorted(raices_positivas)
     
@@ -307,6 +321,105 @@ class ModeloVapeo:
             'estabilidad': estabilidad
         }
     
+    def numero_reproductivo_efectivo(self, v):
+        """
+        Número reproductivo efectivo R(v) evaluado a prevalencia fraccionaria v = V/N.
+
+        Descompone R(v) en la vía de transmisión social y la vía de recaída
+        (número reproductivo de recaída). Se cumple R(0) = R_0, y los equilibrios
+        endémicos son exactamente las soluciones de R(v) = 1 en (0, 1).
+
+        Parámetros
+        ----------
+        v : float
+            Prevalencia fraccionaria de vapeo, v = V/N, con 0 <= v <= 1.
+
+        Retorna
+        -------
+        tuple (R_total, R_transmision, R_recaida)
+        """
+        B = self.phi * self.beta
+        Bp = self.phi_p * self.beta_p
+        Gamma = self.mu + self.gamma_t + self.gamma_p
+
+        R_trans = (B * self.q * self.mu / (B * v + self.mu)
+                   + Bp * (1 - self.q) * self.mu / (Bp * v + self.mu)) / Gamma
+        R_recaida = (self.rho * self.gamma_t * v / (self.rho * v + self.mu)) / Gamma
+
+        return R_trans + R_recaida, R_trans, R_recaida
+
+    def criterio_bifurcacion_backward(self):
+        """
+        Evalúa la condición de bifurcación hacia atrás en R_0 = 1.
+
+        La bifurcación es hacia atrás cuando
+            rho * gamma_t > (phi*beta)^2 * q + (phi_p*beta_p)^2 * (1-q),
+        condición equivalente a a_1 < 0 sobre la superficie R_0 = 1.
+
+        Retorna
+        -------
+        dict con los dos miembros de la desigualdad, el veredicto, el valor de
+        gamma_t que produce R_0 = 1 y el umbral rho* evaluado en ese punto.
+        """
+        B = self.phi * self.beta
+        Bp = self.phi_p * self.beta_p
+
+        lhs = self.rho * self.gamma_t
+        rhs = B**2 * self.q + Bp**2 * (1 - self.q)
+
+        gamma_t_critico = (B * self.q + Bp * (1 - self.q)) - self.mu - self.gamma_p
+        rho_critico = rhs / gamma_t_critico if gamma_t_critico > 0 else np.inf
+
+        return {
+            'lhs': lhs,
+            'rhs': rhs,
+            'bifurcacion_backward': lhs > rhs,
+            'gamma_t_critico': gamma_t_critico,
+            'rho_critico': rho_critico
+        }
+
+    def contar_equilibrios(self):
+        """
+        Cuenta y clasifica los equilibrios endémicos biológicamente admisibles.
+
+        Filtra las raíces de la cúbica al intervalo (0, N] y determina la
+        estabilidad local de cada una mediante los autovalores de la jacobiana.
+
+        Retorna
+        -------
+        dict con el número de equilibrios, el régimen del sistema
+        ('supercritico', 'biestable', 'subcritico_sin_endemicos') y la lista
+        de equilibrios con su prevalencia, autovalor dominante y estabilidad.
+        """
+        coefs = self.coeficientes_cubica()
+        raices = np.roots(list(coefs))
+        reales = [r.real for r in raices
+                  if abs(r.imag) < 1e-8 and 1e-10 < r.real <= self.N]
+
+        equilibrios = []
+        for V in sorted(reales):
+            eq = self.calcular_equilibrio_completo(V)
+            eq_tuple = (eq['S'], eq['P'], eq['V'], eq['Qt'], eq['Qp'])
+            autovalores = np.linalg.eigvals(self.matriz_jacobiana(eq_tuple))
+            lam_max = max(autovalores.real)
+            equilibrios.append({
+                'V': V,
+                'prevalencia': 100 * V / self.N,
+                'lambda_max': lam_max,
+                'estable': lam_max < 0
+            })
+
+        if self.calcular_R0() > 1:
+            regimen = 'supercritico'
+        elif len(equilibrios) >= 2:
+            regimen = 'biestable'
+        else:
+            regimen = 'subcritico_sin_endemicos'
+
+        return {'n_equilibrios': len(equilibrios),
+                'regimen': regimen,
+                'equilibrios': equilibrios}
+
     def sistema_EDO(self, y, t):
         """
         Sistema de ecuaciones diferenciales ordinarias del modelo.
@@ -671,7 +784,7 @@ def evaluar_intervencion(params_base, params_intervencion, nombre_intervencion, 
     axes[1].grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
-    plt.savefig(f'intervencion_{nombre_intervencion.lower().replace(" ", "_")}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'intervencion_{nombre_archivo_seguro(nombre_intervencion)}.png', dpi=300, bbox_inches='tight')
     print(f"Gráfico guardado: intervencion_{nombre_intervencion.lower().replace(' ', '_')}.png")
     plt.show()
     plt.close(fig)
@@ -789,7 +902,7 @@ def escenario_ajustado_CR(params_ajustados, nombre_escenario="Ajustado CR"):
     axes[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(f'escenario_{nombre_escenario.lower().replace(" ", "_")}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'escenario_{nombre_archivo_seguro(nombre_escenario)}.png', dpi=300, bbox_inches='tight')
     print(f"\nGráfico guardado: escenario_{nombre_escenario.lower().replace(' ', '_')}.png")
     plt.show()
     plt.close(fig)
@@ -984,7 +1097,7 @@ def simulaciones_dinamicas(modelo, nombre_escenario, condiciones_iniciales_lista
         })
     
     plt.tight_layout()
-    plt.savefig(f'simulaciones_{nombre_escenario.lower().replace(" ", "_")}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'simulaciones_{nombre_archivo_seguro(nombre_escenario)}.png', dpi=300, bbox_inches='tight')
     print(f"\n   Gráfico guardado como: simulaciones_{nombre_escenario.lower().replace(' ', '_')}.png")
     plt.show()
     plt.close(fig)
@@ -1429,6 +1542,130 @@ resultados_intervenciones = [
 ]
 for nombre, reduccion in sorted(resultados_intervenciones, key=lambda x: x[1], reverse=True):
     print(f"   - {nombre}: {reduccion:.2f}% de reducción")
+
+# ============================================================================
+# ANÁLISIS DE MULTIPLICIDAD DE EQUILIBRIOS Y BIFURCACIÓN HACIA ATRÁS
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("ANÁLISIS DE MULTIPLICIDAD DE EQUILIBRIOS")
+print("=" * 80)
+
+# --- Criterio de bifurcación hacia atrás para el escenario base ---
+modelo_base = ModeloVapeo(params_base)
+crit = modelo_base.criterio_bifurcacion_backward()
+print(f"\nEscenario base:")
+print(f"  rho * gamma_t          = {crit['lhs']:.5f}")
+print(f"  (phi*beta)^2 q + ...   = {crit['rhs']:.5f}")
+print(f"  Bifurcacion hacia atras: {crit['bifurcacion_backward']}")
+print(f"  gamma_t que da R0 = 1  = {crit['gamma_t_critico']:.5f}")
+print(f"  Umbral rho*            = {crit['rho_critico']:.4f}")
+
+# --- Configuración biestable de referencia ---
+params_biestable = {'beta': 0.22, 'beta_p': 0.50, 'gamma_t': 0.20, 'gamma_p': 0.09,
+                    'rho': 2.50, 'phi': 0.70, 'phi_p': 0.80, 'q': 0.58,
+                    'mu': 0.0125, 'N': 10000}
+modelo_bi = ModeloVapeo(params_biestable)
+res = modelo_bi.contar_equilibrios()
+print(f"\nConfiguracion biestable: R0 = {modelo_bi.calcular_R0():.4f}, "
+      f"regimen = {res['regimen']}")
+for i, eq in enumerate(res['equilibrios'], 1):
+    print(f"  Equilibrio #{i}: V* = {eq['V']:.2f} ({eq['prevalencia']:.2f}%), "
+          f"lambda_max = {eq['lambda_max']:+.4f}, "
+          f"{'estable' if eq['estable'] else 'inestable'}")
+
+# --- Figura: mapa del número de equilibrios en (rho, gamma_t) ---
+print("\nGenerando mapa del numero de equilibrios...")
+rhos = np.linspace(0.05, 3.10, 300)
+gts = np.linspace(0.02, 0.30, 300)
+M = np.zeros((len(gts), len(rhos)))
+for i, r in enumerate(rhos):
+    for j, g in enumerate(gts):
+        p = dict(params_base, rho=r, gamma_t=g)
+        m = ModeloVapeo(p)
+        res_ij = m.contar_equilibrios()
+        M[j, i] = (2 if res_ij['regimen'] == 'supercritico'
+                   else (1 if res_ij['regimen'] == 'biestable' else 0))
+
+from matplotlib.colors import ListedColormap
+import matplotlib.patches as mpatches
+
+fig, ax = plt.subplots(figsize=(9, 6))
+ax.pcolormesh(rhos, gts, M, cmap=ListedColormap(['#1a7d3a', '#c0392b', '#e8a33d']),
+              shading='auto')
+gt_um = modelo_base.criterio_bifurcacion_backward()['gamma_t_critico']
+ax.axhline(gt_um, color='white', ls='--', lw=1.6)
+ax.text(1.75, gt_um + 0.006, r'$R_0=1$', color='white', fontsize=11, ha='center')
+ax.plot(params_base['rho'], params_base['gamma_t'], marker='*', ms=20,
+        color='white', mec='black', mew=1.2, ls='', zorder=5)
+ax.plot(0.93, params_base['gamma_t'], marker='o', ms=10,
+        color='white', mec='black', mew=1.2, ls='', zorder=5)
+ax.set_xlabel(r'$\rho$ (tasa de recaída)', fontsize=12)
+ax.set_ylabel(r'$\gamma_t$ (tasa de abandono temporal)', fontsize=12)
+ax.set_title('Número de equilibrios endémicos en el espacio ' + r'$(\rho,\gamma_t)$',
+             fontsize=13, fontweight='bold')
+ax.legend(handles=[
+    mpatches.Patch(color='#1a7d3a', label=r'$R_0<1$: ningún equilibrio endémico'),
+    mpatches.Patch(color='#c0392b', label=r'$R_0<1$: dos equilibrios (biestabilidad)'),
+    mpatches.Patch(color='#e8a33d', label=r'$R_0>1$: un equilibrio endémico'),
+    plt.Line2D([], [], marker='*', color='white', mec='black', ms=15, ls='',
+               label='Escenario base'),
+    plt.Line2D([], [], marker='o', color='white', mec='black', ms=8, ls='',
+               label=r'$\rho$ de referencia')],
+    loc='upper left', fontsize=9.5, framealpha=0.95)
+plt.tight_layout()
+plt.savefig('mapa_numero_equilibrios.png', dpi=300, bbox_inches='tight')
+plt.close('all')
+
+n0, n1, n2 = (M == 0).sum(), (M == 1).sum(), (M == 2).sum()
+print(f"  R0>1: {100*n2/M.size:.1f}% | R0<1 sin endemicos: {100*n0/M.size:.1f}% "
+      f"| biestable: {100*n1/M.size:.1f}%")
+
+# --- Figura: diagrama de bifurcación hacia atrás ---
+print("Generando diagrama de bifurcacion...")
+bps = np.linspace(0.30, 0.80, 3000)
+lowR, lowV, hiR, hiV = [], [], [], []
+for bp in bps:
+    p = dict(params_biestable, beta_p=bp)
+    m = ModeloVapeo(p)
+    r = m.calcular_R0()
+    eqs = m.contar_equilibrios()['equilibrios']
+    if len(eqs) == 2:
+        lowR.append(r); lowV.append(eqs[0]['prevalencia'])
+        hiR.append(r);  hiV.append(eqs[1]['prevalencia'])
+    elif len(eqs) == 1:
+        hiR.append(r);  hiV.append(eqs[0]['prevalencia'])
+lowR, lowV = np.array(lowR), np.array(lowV)
+hiR, hiV = np.array(hiR), np.array(hiV)
+Rsn, Vsn = lowR.min(), lowV[lowR.argmin()]
+
+fig, ax = plt.subplots(figsize=(9, 6))
+ax.plot(hiR, hiV, color='#1f4e9c', lw=2.2, label='Rama endémica estable', zorder=3)
+ax.plot(lowR, lowV, color='#c0392b', ls='--', lw=2.2,
+        label='Rama endémica inestable', zorder=3)
+rr = np.linspace(0.60, 1.20, 400)
+ax.plot(rr[rr <= 1], np.zeros((rr <= 1).sum()), color='#1f4e9c', lw=2.2, zorder=3)
+ax.plot(rr[rr > 1], np.zeros((rr > 1).sum()), color='#c0392b', ls='--', lw=2.2, zorder=3)
+ax.axvspan(Rsn, 1.0, color='#c0392b', alpha=0.07, zorder=0)
+ax.axvline(1, color='black', ls=':', lw=1.2)
+ax.axvline(Rsn, color='gray', ls=':', lw=1.2)
+ax.plot([Rsn], [Vsn], marker='o', ms=7, color='#c0392b', mec='black', mew=1.0, zorder=4)
+ax.text(1.01, 6.6, r'$R_0=1$', fontsize=11)
+ax.text(Rsn + 0.012, 6.6, r'$R_0^{\,\mathrm{sn}}=%.2f$' % Rsn, fontsize=11)
+ax.text((Rsn + 1) / 2, 0.42, 'región de biestabilidad', fontsize=10.5,
+        ha='center', color='#8c2f22')
+ax.set_xlabel(r'$R_0$', fontsize=12)
+ax.set_ylabel(r'Prevalencia de equilibrio  $100\,V^*/N$  (%)', fontsize=12)
+ax.set_title('Bifurcación hacia atrás: equilibrios endémicos con ' + r'$R_0<1$',
+             fontsize=13, fontweight='bold')
+ax.legend(fontsize=10, loc='lower right')
+ax.grid(alpha=0.3)
+ax.set_xlim(0.60, 1.20)
+ax.set_ylim(-0.35, 7.2)
+plt.tight_layout()
+plt.savefig('bifurcacion_hacia_atras.png', dpi=300, bbox_inches='tight')
+plt.close('all')
+print(f"  Punto de retorno silla-nodo: R0 = {Rsn:.4f}, prevalencia = {Vsn:.2f}%")
 
 print("\n4. Reconciliación con datos de Costa Rica:")
 print(f"   - Escenario base (literatura): R₀ = {resultados_base['R0']:.4f} (subcrítico)")
