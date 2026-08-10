@@ -1705,7 +1705,7 @@ print("    - comparacion_intervenciones_R0.png")
 print("    - escenario_ajustado_moderado.png")
 print("    - escenario_ajustado_alto.png")
 print("    - comparacion_todos_escenarios_temporal.png")
-print("  Multiplicidad de equilibrios y bifurcación hacia atrás:")
+print("  Sección 5.9.10:")
 print("    - mapa_numero_equilibrios.png")
 print("    - bifurcacion_hacia_atras.png")
 
