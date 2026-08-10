@@ -492,6 +492,40 @@ class ModeloVapeo:
 # FUNCIÓN AUXILIAR: GENERAR CONDICIONES INICIALES CONSISTENTES
 # ============================================================================
 
+def tiempo_hasta_umbral(t, prevalencia, umbral=1.0):
+    """
+    Calcula el tiempo en que la prevalencia cruza por debajo de un umbral,
+    mediante interpolación lineal entre los nodos de la malla temporal.
+
+    De este modo la precisión del tiempo reportado no queda limitada por el
+    paso de la malla (por ejemplo, ~0.1 años con 1000 puntos en [0, 100]).
+
+    Parameters
+    ----------
+    t : array
+        Vector de tiempos de la simulación.
+    prevalencia : array
+        Prevalencia (%) correspondiente a cada tiempo.
+    umbral : float
+        Umbral de prevalencia (%) cuyo cruce descendente se busca.
+
+    Returns
+    -------
+    float o None
+        Tiempo interpolado del primer cruce descendente, o None si la
+        prevalencia nunca cae por debajo del umbral en el horizonte simulado.
+    """
+    indices = np.where(prevalencia < umbral)[0]
+    if len(indices) == 0:
+        return None
+    i = indices[0]
+    if i == 0:
+        return t[0]
+    # Interpolación lineal entre (t[i-1], p[i-1]) y (t[i], p[i])
+    p0, p1 = prevalencia[i - 1], prevalencia[i]
+    return t[i - 1] + (p0 - umbral) / (p0 - p1) * (t[i] - t[i - 1])
+
+
 def generar_condicion_inicial(N, q, prevalencia_V, Qt0=0, Qp0=0):
     """
     Genera condiciones iniciales que satisfacen S+P+V+Qt+Qp = N.
@@ -734,7 +768,7 @@ def evaluar_intervencion(params_base, params_intervencion, nombre_intervencion, 
     
     # Condiciones iniciales consistentes (prevalencia 13%)
     y0 = generar_condicion_inicial(N, q, 0.13)
-    t = np.linspace(0, t_max, 1000)
+    t = np.linspace(0, t_max, 10001)
     
     sol_base = modelo_base.simular(y0, t)
     sol_intervencion = modelo_intervencion.simular(y0, t)
@@ -742,17 +776,12 @@ def evaluar_intervencion(params_base, params_intervencion, nombre_intervencion, 
     prev_base = modelo_base.calcular_prevalencia(sol_base)
     prev_intervencion = modelo_intervencion.calcular_prevalencia(sol_intervencion)
     
-    # Encontrar tiempos hasta prevalencia < 1%
-    tiempo_1pct_base = None
-    tiempo_1pct_intervencion = None
-    
-    indices_base = np.where(prev_base < 1.0)[0]
-    if len(indices_base) > 0:
-        tiempo_1pct_base = t[indices_base[0]]
-    
-    indices_intervencion = np.where(prev_intervencion < 1.0)[0]
-    if len(indices_intervencion) > 0:
-        tiempo_1pct_intervencion = t[indices_intervencion[0]]
+    # Encontrar tiempos hasta prevalencia < 1% (interpolación lineal del cruce)
+    tiempo_1pct_base = tiempo_hasta_umbral(t, prev_base, umbral=1.0)
+    tiempo_1pct_intervencion = tiempo_hasta_umbral(t, prev_intervencion, umbral=1.0)
+    if tiempo_1pct_base is not None and tiempo_1pct_intervencion is not None:
+        print(f"  Tiempo hasta <1%: base {tiempo_1pct_base:.2f} años, "
+              f"intervención {tiempo_1pct_intervencion:.2f} años")
     
     # Graficar comparación
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -846,7 +875,7 @@ def escenario_ajustado_CR(params_ajustados, nombre_escenario="Ajustado CR"):
     
     # Condiciones iniciales consistentes (prevalencia 13%)
     y0 = generar_condicion_inicial(N, q, 0.13)
-    t = np.linspace(0, 100, 1000)
+    t = np.linspace(0, 100, 10001)
     
     sol = modelo.simular(y0, t)
     prev = modelo.calcular_prevalencia(sol)
@@ -856,11 +885,9 @@ def escenario_ajustado_CR(params_ajustados, nombre_escenario="Ajustado CR"):
     print(f"{'='*80}")
     print(f"Condición inicial: S={y0[0]:.0f}, P={y0[1]:.0f}, V={y0[2]:.0f}, Qt={y0[3]:.0f}, Qp={y0[4]:.0f}")
     print(f"Suma = {sum(y0):.0f} (N = {N})")
-    print(f"Prevalencia en t=0:   {prev[0]:.2f}%")
-    print(f"Prevalencia en t=10:  {prev[100]:.2f}%")
-    print(f"Prevalencia en t=25:  {prev[250]:.2f}%")
-    print(f"Prevalencia en t=50:  {prev[500]:.2f}%")
-    print(f"Prevalencia en t=100: {prev[-1]:.2f}%")
+    for t_check in [0, 10, 25, 50, 100]:
+        idx = int(np.argmin(np.abs(t - t_check)))
+        print(f"Prevalencia en t={t_check}: {prev[idx]:.2f}%")
     
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
@@ -1021,7 +1048,7 @@ def simulaciones_dinamicas(modelo, nombre_escenario, condiciones_iniciales_lista
     print(f"SIMULACIONES DINÁMICAS - {nombre_escenario}")
     print(f"{'='*80}\n")
     
-    t = np.linspace(0, t_max, 1000)
+    t = np.linspace(0, t_max, 10001)
     resultados_sim = []
     
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -1039,11 +1066,7 @@ def simulaciones_dinamicas(modelo, nombre_escenario, condiciones_iniciales_lista
         
         prevalencia_inicial = (y0[2] / modelo.N) * 100
         prevalencia_final = prevalencia[-1]
-        tiempo_hasta_1_porciento = None
-        
-        indices_bajo_1 = np.where(prevalencia < 1.0)[0]
-        if len(indices_bajo_1) > 0:
-            tiempo_hasta_1_porciento = t[indices_bajo_1[0]]
+        tiempo_hasta_1_porciento = tiempo_hasta_umbral(t, prevalencia, umbral=1.0)
         
         print(f"   Prevalencia inicial: {prevalencia_inicial:.2f}%")
         print(f"   Prevalencia final (t={t_max}): {prevalencia_final:.4f}%")
@@ -1190,7 +1213,7 @@ sim_base = simulaciones_dinamicas(
 
 # Extraer prevalencias en tiempos específicos para el caso 13% (índice 1)
 print("\n--- PREVALENCIAS ESPECÍFICAS ESCENARIO BASE (13%) ---")
-t = np.linspace(0, 100, 1000)
+t = np.linspace(0, 100, 10001)
 prev_13 = sim_base[1]['prevalencia']
 for t_check in [10, 25, 50, 100]:
     idx = np.argmin(np.abs(t - t_check))
@@ -1455,7 +1478,7 @@ print("\nGenerando gráfico comparativo de evolución temporal...")
 fig_todos, ax_todos = plt.subplots(figsize=(14, 7))
 
 y0_13 = generar_condicion_inicial(N, q, 0.13)
-t = np.linspace(0, 100, 1000)
+t = np.linspace(0, 100, 10001)
 
 # Base
 sol_base = resultados_base['modelo'].simular(y0_13, t)
@@ -1548,7 +1571,7 @@ for nombre, reduccion in sorted(resultados_intervenciones, key=lambda x: x[1], r
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("ANÁLISIS DE MULTIPLICIDAD DE EQUILIBRIOS")
+print("5.9.10: ANÁLISIS DE MULTIPLICIDAD DE EQUILIBRIOS")
 print("=" * 80)
 
 # --- Criterio de bifurcación hacia atrás para el escenario base ---
@@ -1621,6 +1644,12 @@ n0, n1, n2 = (M == 0).sum(), (M == 1).sum(), (M == 2).sum()
 print(f"  R0>1: {100*n2/M.size:.1f}% | R0<1 sin endemicos: {100*n0/M.size:.1f}% "
       f"| biestable: {100*n1/M.size:.1f}%")
 
+# Límites de la banda biestable en el espacio (rho, gamma_t)
+idx_g, idx_r = np.where(M == 1)
+if idx_r.size > 0:
+    print(f"  Banda biestable: rho en [{rhos[idx_r.min()]:.2f}, {rhos[idx_r.max()]:.2f}], "
+          f"gamma_t en [{gts[idx_g.min()]:.3f}, {gts[idx_g.max()]:.3f}]")
+
 # --- Figura: diagrama de bifurcación hacia atrás ---
 print("Generando diagrama de bifurcacion...")
 bps = np.linspace(0.30, 0.80, 3000)
@@ -1666,6 +1695,182 @@ plt.tight_layout()
 plt.savefig('bifurcacion_hacia_atras.png', dpi=300, bbox_inches='tight')
 plt.close('all')
 print(f"  Punto de retorno silla-nodo: R0 = {Rsn:.4f}, prevalencia = {Vsn:.2f}%")
+
+# ============================================================================
+# CALIBRACIÓN INVERSA DE LA TASA DE TRANSMISIÓN AL CRECIMIENTO OBSERVADO
+# (Sección "Reconciliación con datos de Costa Rica: escenarios ajustados")
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("CALIBRACIÓN INVERSA: TRANSMISIÓN COMPATIBLE CON EL CRECIMIENTO 2021-2025")
+print("=" * 80)
+
+# --- Estimación por linealización: crecimiento exponencial 4% -> 13% en 4 años ---
+prev_2021, prev_2025, anios = 0.04, 0.13, 4.0
+r_crecimiento = np.log(prev_2025 / prev_2021) / anios
+Gamma_base = params_base['mu'] + params_base['gamma_t'] + params_base['gamma_p']
+R0_lineal = 1.0 + r_crecimiento / Gamma_base
+print(f"\nTasa de crecimiento exponencial observada: r = {r_crecimiento:.4f} año^-1")
+print(f"Estimación lineal (r = Gamma*(R0-1)):       R0 = {R0_lineal:.2f}")
+
+# --- Problema inverso no lineal: escalar beta y beta_p por un factor común k ---
+def _prevalencia_final_escala(k):
+    """Prevalencia (fracción) alcanzada a los 4 años partiendo del 4%,
+    con beta = k*beta_base y beta_p = k*beta_p_base. Devuelve el residuo
+    respecto del 13% observado."""
+    p = dict(params_base, beta=k * params_base['beta'],
+             beta_p=k * params_base['beta_p'])
+    m = ModeloVapeo(p)
+    y0 = generar_condicion_inicial(p['N'], p['q'], prev_2021)
+    tt = np.linspace(0, anios, 4001)
+    s = odeint(m.sistema_EDO, y0, tt)
+    return s[-1, 2] / p['N'] - prev_2025
+
+k_estrella = brentq(_prevalencia_final_escala, 1.5, 6.0, xtol=1e-10)
+beta_cal = k_estrella * params_base['beta']
+beta_p_cal = k_estrella * params_base['beta_p']
+modelo_cal = ModeloVapeo(dict(params_base, beta=beta_cal, beta_p=beta_p_cal))
+R0_cal = modelo_cal.calcular_R0()
+print(f"\nProblema inverso (método de Brent sobre el factor de escala k):")
+print(f"  k = {k_estrella:.2f}")
+print(f"  beta = {beta_cal:.2f} año^-1,  beta_p = {beta_p_cal:.2f} año^-1")
+print(f"  R0 = {R0_cal:.2f}")
+
+# Trayectoria calibrada: pico y equilibrio endémico
+y0_cal = generar_condicion_inicial(params_base['N'], params_base['q'], prev_2021)
+tt_cal = np.linspace(0, 30, 30001)
+sol_cal = odeint(modelo_cal.sistema_EDO, y0_cal, tt_cal)
+prev_cal = sol_cal[:, 2] / params_base['N'] * 100
+i_pico = int(np.argmax(prev_cal))
+print(f"  Pico de prevalencia: {prev_cal[i_pico]:.2f}% en t = {tt_cal[i_pico]:.1f} años "
+      f"(hacia {2021 + tt_cal[i_pico]:.0f})")
+eq_cal = modelo_cal.resolver_equilibrios_endemicos()
+for V_star in eq_cal:
+    print(f"  Equilibrio endémico: V* = {V_star:.0f} "
+          f"({V_star / params_base['N'] * 100:.2f}% de prevalencia)")
+
+# --- Variante: ajuste de beta con beta_p fijo en su valor base ---
+def _prevalencia_final_beta(beta_val):
+    p = dict(params_base, beta=beta_val)
+    m = ModeloVapeo(p)
+    y0 = generar_condicion_inicial(p['N'], p['q'], prev_2021)
+    tt = np.linspace(0, anios, 4001)
+    s = odeint(m.sistema_EDO, y0, tt)
+    return s[-1, 2] / p['N'] - prev_2025
+
+beta_solo = brentq(_prevalencia_final_beta, 0.3, 3.0, xtol=1e-10)
+print(f"\nVariante con beta_p fijo en {params_base['beta_p']}:")
+print(f"  beta requerido = {beta_solo:.2f} año^-1  "
+      f"(transmisión efectiva phi*beta = {params_base['phi'] * beta_solo:.2f} año^-1)")
+
+# ============================================================================
+# UMBRALES DE APARICIÓN DE EQUILIBRIOS ENDÉMICOS EN rho (rho_b)
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("UMBRALES rho_b: APARICIÓN DE EQUILIBRIOS ENDÉMICOS AL AUMENTAR rho")
+print("=" * 80)
+
+def umbral_rho_endemicos(params, rho_min=0.121, rho_max=20.0, iteraciones=60):
+    """
+    Encuentra por bisección el menor valor de rho a partir del cual la
+    ecuación cúbica admite raíces positivas (equilibrios endémicos),
+    manteniendo los restantes parámetros fijos.
+    """
+    def hay_endemicos(r):
+        m = ModeloVapeo(dict(params, rho=r))
+        return len(m.resolver_equilibrios_endemicos()) > 0
+
+    lo, hi = rho_min, rho_max
+    if hay_endemicos(lo):
+        return lo
+    if not hay_endemicos(hi):
+        return None
+    for _ in range(iteraciones):
+        mid = 0.5 * (lo + hi)
+        if hay_endemicos(mid):
+            hi = mid
+        else:
+            lo = mid
+    return 0.5 * (lo + hi)
+
+rho_b_base = umbral_rho_endemicos(params_base)
+rho_b_cons = umbral_rho_endemicos(params_conservador)
+print(f"\nEscenario base:        rho_b = {rho_b_base:.2f} año^-1")
+print(f"Escenario conservador: rho_b = {rho_b_cons:.2f} año^-1")
+print(f"Prevalencia implícita de la conversión (0.121 / rho_b, base): "
+      f"{0.121 / rho_b_base * 100:.2f}%")
+
+# Valor de rho en que a_1 cambia de signo (escenario base)
+def _a1_de_rho(r):
+    return ModeloVapeo(dict(params_base, rho=r)).coeficientes_cubica()[2]
+
+rho_a1_cero = brentq(_a1_de_rho, 0.5, 3.0, xtol=1e-10)
+print(f"Cambio de signo de a_1 (base): rho = {rho_a1_cero:.2f} "
+      f"(condición necesaria pero no suficiente para equilibrios endémicos)")
+
+# ============================================================================
+# MUESTREO DE MONTE CARLO SOBRE LOS RANGOS DE INCERTIDUMBRE PARAMÉTRICA
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("MONTE CARLO: DISTRIBUCIÓN DE REGÍMENES SOBRE LOS RANGOS DE INCERTIDUMBRE")
+print("=" * 80)
+
+# Rangos del Cuadro de parámetros calibrados. El muestreo es uniforme e
+# independiente sobre cada rango, con semilla fija para reproducibilidad.
+RANGOS_MC = {
+    'beta':    (0.15, 0.22),
+    'beta_p':  (0.42, 0.58),
+    'gamma_t': (0.12, 0.24),
+    'gamma_p': (0.09, 0.18),
+    'phi':     (0.55, 0.75),
+    'phi_p':   (0.65, 0.85),
+    'q':       (0.55, 0.68),
+}
+SEMILLA_MC = 20260901
+N_REPLICAS = 20000
+
+def monte_carlo_regimenes(rho_config, n_replicas=N_REPLICAS, semilla=SEMILLA_MC):
+    """
+    Clasifica n_replicas configuraciones muestreadas uniformemente sobre
+    RANGOS_MC según su régimen: supercrítico (R0 > 1), subcrítico sin
+    equilibrios endémicos, o biestable (R0 < 1 con dos equilibrios).
+
+    rho_config: valor fijo de rho (float) o tupla (rho_min, rho_max)
+    para muestrearlo uniformemente junto con los demás parámetros.
+    """
+    rng = np.random.default_rng(semilla)
+    conteo = {'supercritico': 0, 'sin_endemicos': 0, 'biestable': 0}
+    for _ in range(n_replicas):
+        p = dict(params_base)
+        for nombre, (lo, hi) in RANGOS_MC.items():
+            p[nombre] = rng.uniform(lo, hi)
+        p['rho'] = (rho_config if isinstance(rho_config, float)
+                    else rng.uniform(*rho_config))
+        m = ModeloVapeo(p)
+        regimen = m.contar_equilibrios()['regimen']
+        if regimen == 'supercritico':
+            conteo['supercritico'] += 1
+        elif regimen == 'biestable':
+            conteo['biestable'] += 1
+        else:
+            conteo['sin_endemicos'] += 1
+    return conteo
+
+print(f"\nMuestreo uniforme e independiente, semilla = {SEMILLA_MC}, "
+      f"{N_REPLICAS} réplicas por fila.")
+print("Nota: rho no interviene en R0, de modo que ambas filas estiman la misma")
+print("probabilidad P(R0 > 1); sus valores difieren solo por ruido de muestreo.\n")
+
+for etiqueta, rho_cfg in [("rho = 0.121 (valor calibrado)", 0.121),
+                          ("rho ~ U[0.10, 3.10]", (0.10, 3.10))]:
+    c = monte_carlo_regimenes(rho_cfg)
+    n = sum(c.values())
+    print(f"{etiqueta}:")
+    print(f"  R0 > 1:                 {100 * c['supercritico'] / n:.2f}%")
+    print(f"  R0 < 1, sin endémicos:  {100 * c['sin_endemicos'] / n:.2f}%")
+    print(f"  R0 < 1, biestable:      {100 * c['biestable'] / n:.2f}%")
 
 print("\n4. Reconciliación con datos de Costa Rica:")
 print(f"   - Escenario base (literatura): R₀ = {resultados_base['R0']:.4f} (subcrítico)")
