@@ -1872,6 +1872,72 @@ for etiqueta, rho_cfg in [("rho = 0.121 (valor calibrado)", 0.121),
     print(f"  R0 < 1, sin endémicos:  {100 * c['sin_endemicos'] / n:.2f}%")
     print(f"  R0 < 1, biestable:      {100 * c['biestable'] / n:.2f}%")
 
+# ============================================================================
+# ROBUSTEZ FRENTE A LA INTERPRETACIÓN DEMOGRÁFICA DE mu
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("ROBUSTEZ FRENTE A LA INTERPRETACIÓN DE mu (RENOVACIÓN DE COHORTE)")
+print("=" * 80)
+
+MUS_ROBUSTEZ = [(0.0125, "1/80 (esperanza de vida)"),
+                (0.10,   "1/10 (renovación de cohorte)"),
+                (0.20,   "1/5 (renovación de cohorte)")]
+
+def calibrar_factor_transmision(mu_valor, prev_ini=0.04, prev_fin=0.13, anios=4.0):
+    """
+    Determina el factor de escala k tal que, con beta = k*beta_base y
+    beta_p = k*beta_p_base, la trayectoria del sistema pasa de prev_ini a
+    prev_fin en el número de años indicado, para el valor de mu dado.
+
+    Permite repetir la calibración inversa bajo distintas interpretaciones
+    demográficas del parámetro mu.
+    """
+    def residuo(k):
+        p = dict(params_base, mu=mu_valor,
+                 beta=k * params_base['beta'], beta_p=k * params_base['beta_p'])
+        m = ModeloVapeo(p)
+        y0 = generar_condicion_inicial(p['N'], p['q'], prev_ini)
+        s = odeint(m.sistema_EDO, y0, np.linspace(0, anios, 4001))
+        return s[-1, 2] / p['N'] - prev_fin
+    return brentq(residuo, 1.01, 40.0, xtol=1e-10)
+
+for mu_valor, etiqueta in MUS_ROBUSTEZ:
+    print(f"\nmu = {mu_valor}  [{etiqueta}]")
+    m_base_mu = ModeloVapeo(dict(params_base, mu=mu_valor))
+    print(f"  R0 escenario base           = {m_base_mu.calcular_R0():.4f}")
+
+    k = calibrar_factor_transmision(mu_valor)
+    p_cal = dict(params_base, mu=mu_valor,
+                 beta=k * params_base['beta'], beta_p=k * params_base['beta_p'])
+    m_cal_mu = ModeloVapeo(p_cal)
+    print(f"  k calibrado                 = {k:.2f}")
+    print(f"  R0 escenario calibrado      = {m_cal_mu.calcular_R0():.4f}")
+
+    eqs_mu = m_cal_mu.resolver_equilibrios_endemicos()
+    if eqs_mu:
+        V_mu = eqs_mu[0]
+        e_mu = m_cal_mu.calcular_equilibrio_completo(V_mu)
+        st_mu = m_cal_mu.analizar_estabilidad(
+            (e_mu['S'], e_mu['P'], V_mu, e_mu['Qt'], e_mu['Qp']))
+        print(f"  Equilibrio endémico         = {100*V_mu/p_cal['N']:.2f}% "
+              f"({'estable' if st_mu['max_parte_real'] < 0 else 'inestable'})")
+        print(f"  Qp*/V* = gamma_p/mu         = {params_base['gamma_p']/mu_valor:.2f}")
+        print(f"  Fracción en abandono        = "
+              f"{100*(e_mu['Qt']+e_mu['Qp'])/p_cal['N']:.1f}%")
+
+    y0_mu = generar_condicion_inicial(p_cal['N'], p_cal['q'], 0.04)
+    tt_mu = np.linspace(0, 40, 40001)
+    pv_mu = odeint(m_cal_mu.sistema_EDO, y0_mu, tt_mu)[:, 2] / p_cal['N'] * 100
+    i_mu = int(np.argmax(pv_mu))
+    print(f"  Pico calibrado              = {pv_mu[i_mu]:.2f}% en {2021 + tt_mu[i_mu]:.0f}")
+
+    m_mod_mu = ModeloVapeo(dict(params_ajustado_moderado, mu=mu_valor))
+    eqm_mu = m_mod_mu.resolver_equilibrios_endemicos()
+    print(f"  Escenario moderado          : R0 = {m_mod_mu.calcular_R0():.4f}, "
+          f"equilibrio = "
+          f"{('%.2f%%' % (100*eqm_mu[0]/10000)) if eqm_mu else 'ninguno'}")
+
 print("\n4. Reconciliación con datos de Costa Rica:")
 print(f"   - Escenario base (literatura): R₀ = {resultados_base['R0']:.4f} (subcrítico)")
 print(f"   - Escenario ajustado moderado: R₀ = {resultado_moderado['R0']:.4f} (supercrítico)")
